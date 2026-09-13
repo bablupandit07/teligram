@@ -2,7 +2,7 @@ services:
   - type: web
     name: flow-telegram
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm install --omit=dev
     startCommand: npm start
     healthCheckPath: /healthz
@@ -12,8 +12,4 @@ services:
       - key: APP_PASSWORD
         sync: false
       - key: APP_DATA_DIR
-        value: /var/data/flow
-    disk:
-      name: flow-data
-      mountPath: /var/data
-      sizeGB: 1
+        value: /tmp/flow-telegram
