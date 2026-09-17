@@ -7,10 +7,6 @@ const telegramView = require('./telegram-view');
 const token = crypto.randomBytes(24).toString('hex');
 const port = Number(process.env.PORT || 3210);
 const host = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
-const password = process.env.APP_PASSWORD || '';
-if ((process.env.RENDER || !['127.0.0.1', 'localhost', '::1'].includes(host)) && password.length < 16) {
-    throw Error('Hosted mode requires APP_PASSWORD with at least 16 characters.');
-}
 let job = null;
 let lines = [];
 let sequence = 0;
@@ -27,16 +23,6 @@ const server = http.createServer(async (req, res) => {
     try {
         const url = new URL(req.url, 'http://localhost');
         if (req.method === 'GET' && url.pathname === '/healthz') return reply(res, 200, { ok: true });
-        if (password) {
-            const header = req.headers.authorization || '';
-            const decoded = header.startsWith('Basic ') ? Buffer.from(header.slice(6), 'base64').toString() : '';
-            const supplied = decoded.includes(':') ? decoded.slice(decoded.indexOf(':') + 1) : '';
-            const digest = value => crypto.createHash('sha256').update(value).digest();
-            if (!crypto.timingSafeEqual(digest(supplied), digest(password))) {
-                res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Flow private workspace"', 'Cache-Control': 'no-store' });
-                return res.end('Authentication required');
-            }
-        }
         // Legacy CLI tasks are local-only and are not part of this deployment.
         if (!['/', '/api/video', '/api/telegram'].includes(url.pathname)) return reply(res, 404, { error: 'Not found' });
         if (req.method === 'GET' && url.pathname === '/api/video' && url.searchParams.get('token') === token) {

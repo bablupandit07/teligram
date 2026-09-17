@@ -6,7 +6,7 @@ Single-user Node.js Telegram browser, with file-based storage and no database.
 
 Push the allowed app files to your GitHub repository. In Render choose New > Blueprint and select the repository. The render.yaml creates a FREE web service without a persistent disk. State in /tmp/flow-telegram can be lost on restart/redeploy; login and forwarding checkpoints are not durable. Do not reselect previously forwarded ranges assuming they will still be deduplicated after a restart.
 
-Set APP_PASSWORD to a unique random password of at least 16 characters when prompted. Open the HTTPS service URL; use any username and that password. Enter Telegram credentials in Settings, then complete login. Never put Telegram credentials in Git.
+Open the HTTPS service URL directly; no web username/password prompt is used. Enter Telegram credentials in Settings, then complete login. Never put Telegram credentials in Git. Protect the Render URL with a private service, access control or reverse proxy before sharing it publicly.
 
 Alternatively create a Node Web Service: build `npm install --omit=dev`, start `npm start`, HOST `0.0.0.0`, APP_PASSWORD set, APP_DATA_DIR `/var/data/flow`, health check `/healthz`. Attach a persistent disk at `/var/data`.
 
