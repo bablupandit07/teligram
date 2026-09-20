@@ -4,5 +4,5 @@
   "private": true,
   "scripts": { "start": "node app-server.js", "check": "node --check app-server.js && node --check telegram-view.js" },
   "engines": { "node": "22.x" },
-  "dependencies": { "telegram": "2.26.22", "big-integer": "1.6.52" }
+  "dependencies": { "telegram": "2.26.22", "big-integer": "1.6.52", "xlsx": "0.18.5" }
 }

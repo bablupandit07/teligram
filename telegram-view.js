@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
+const XLSX = require('xlsx');
 const dir = process.env.APP_DATA_DIR ? path.resolve(process.env.APP_DATA_DIR) : path.join(__dirname, '.telegram-view');
 const settingsFile = path.join(dir, 'settings.json');
 const sessionFile = path.join(dir, 'session.txt');
@@ -21,6 +22,29 @@ function saveForwardProgress(value) {
 function read(file, fallback) { try { return fs.readFileSync(file, 'utf8'); } catch (_) { return fallback; } }
 function challenge(type) { state = type; return new Promise(resolve => { answer = resolve; }); }
 function status() { return { state, error: failure, configured: fs.existsSync(settingsFile) }; }
+function parseExportDay(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) throw Error('Select From Date and To Date.');
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) throw Error('Invalid date.');
+    return parsed;
+}
+function cleanLink(value) { return String(value).trim().replace(/[)\],.!?;`*]+$/g, ''); }
+function classifiedLinks(text, provider) {
+    const teraHosts = /^(?:www\.)?(?:terabox\.com|1024terabox\.com|teraboxapp\.com|teraboxlink\.com|terasharelink\.com|terafileshare\.com|terabox\.app|teraboxshare\.com|freeterabox\.com|4funbox\.com|nephobox\.com|mirrobox\.com|momerybox\.com)$/i;
+    return [...new Set((String(text || '').match(/https?:\/\/[^\s<>"']+/gi) || []).map(cleanLink).filter(link => {
+        try {
+            const url = new URL(link);
+            const isDisk = /^(?:www\.)?diskwala\.com$/i.test(url.hostname) && /^\/app\/[A-Za-z0-9_-]+/.test(url.pathname);
+            const isTera = teraHosts.test(url.hostname) && (/^\/s\/[^/]+/.test(url.pathname) || (url.pathname === '/sharing/link' && url.searchParams.has('surl')));
+            return provider === 'diskwala' ? isDisk : provider === 'terabox' ? isTera : isDisk || isTera;
+        } catch (_) { return false; }
+    }))];
+}
+function exportFileName(title, from, to) {
+    const safe = String(title || 'telegram').replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').slice(0, 70) || 'telegram';
+    return `${safe}_${from}_${to}.xlsx`;
+}
 async function login(body) {
     if (busy || state === 'ready') return status();
     let config;
@@ -92,6 +116,52 @@ async function handle(body) {
     }
     const channel = channels.get(String(body.channel));
     if (!channel) throw Error('Select a channel from the list.');
+    if (body.action === 'exportExcel') {
+        const from = parseExportDay(body.from);
+        const end = parseExportDay(body.to);
+        if (from > end) throw Error('From Date cannot be after To Date.');
+        const provider = ['diskwala', 'terabox', 'all'].includes(body.provider) ? body.provider : 'all';
+        const endExclusive = new Date(end.getTime() + 86400000);
+        const rows = [];
+        let group = 0;
+        for await (const m of client.iterMessages(channel, { offsetDate: Math.floor(endExclusive.getTime() / 1000), waitTime: 3 })) {
+            const timestamp = Number(m.date) * 1000;
+            if (timestamp < from.getTime()) break;
+            if (timestamp >= endExclusive.getTime() || m.className !== 'Message') continue;
+            const links = classifiedLinks(m.message || '', provider);
+            if (!links.length) continue;
+            group++;
+            const doc = m.document || m.media?.document;
+            const mediaType = m.photo ? 'image' : doc ? (String(doc.mimeType || '').startsWith('video/') ? 'video' : 'file') : 'none';
+            const fileName = doc?.attributes?.find(a => a.fileName)?.fileName || (m.photo ? `image_${m.id}.jpg` : mediaType === 'video' ? `video_${m.id}.mp4` : '');
+            const date = new Date(timestamp);
+            const relation = `G-${m.id}`;
+            links.forEach((link, index) => rows.push({
+                'RELATION GROUP': relation,
+                'PART NO.': `${group}-${index + 1}`,
+                'DATE': date.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }),
+                'TELEGRAM DATE': date.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false }),
+                'TELEGRAM MESSAGE ID': m.id,
+                'MEDIA INDEX': 1,
+                'LINK INDEX': index + 1,
+                'MEDIA TYPE': mediaType,
+                'FILE NAME': fileName,
+                'TAG': m.message || '',
+                'LINKED MEDIA': fileName ? `${mediaType}: ${fileName}` : mediaType,
+                'RELATED LINK': link,
+                'LINK PROVIDER': /diskwala\.com/i.test(link) ? 'DiskWala' : 'TeraBox',
+                'MAPPING METHOD': 'SAME_MESSAGE'
+            }));
+        }
+        if (!rows.length) throw Error('No matching DiskWala/TeraBox links found in this date range.');
+        rows.reverse();
+        const sheet = XLSX.utils.json_to_sheet(rows);
+        sheet['!cols'] = [18, 12, 12, 22, 20, 12, 12, 12, 28, 55, 32, 65, 14, 18].map(wch => ({ wch }));
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, sheet, 'Media_Link_Map');
+        const data = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx', compression: true });
+        return { fileName: exportFileName(body.title, body.from, body.to), rows: rows.length, data: data.toString('base64') };
+    }
     if (body.action === 'dateMessages') {
         const startDate = body.from || body.date;
         const finishDate = body.to || body.date;
