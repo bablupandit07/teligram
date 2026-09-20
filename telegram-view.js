@@ -30,9 +30,20 @@ function parseExportDay(value) {
     return parsed;
 }
 function cleanLink(value) { return String(value).trim().replace(/[)\],.!?;`*]+$/g, ''); }
-function classifiedLinks(text, provider) {
+function classifiedLinks(text, provider, message = {}) {
+    const candidates = String(text || '').match(/https?:\/\/[^\s<>"']+/gi) || [];
+    for (const entity of message.entities || []) {
+        if (entity.url) candidates.push(entity.url);
+        else if (entity.className === 'MessageEntityUrl') {
+            const value = String(text || '').slice(entity.offset, entity.offset + entity.length);
+            candidates.push(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+        }
+    }
+    for (const row of message.replyMarkup?.rows || []) {
+        for (const button of row.buttons || []) if (button.url) candidates.push(button.url);
+    }
     const teraHosts = /^(?:www\.)?(?:terabox\.com|1024terabox\.com|teraboxapp\.com|teraboxlink\.com|terasharelink\.com|terafileshare\.com|terabox\.app|teraboxshare\.com|freeterabox\.com|4funbox\.com|nephobox\.com|mirrobox\.com|momerybox\.com)$/i;
-    return [...new Set((String(text || '').match(/https?:\/\/[^\s<>"']+/gi) || []).map(cleanLink).filter(link => {
+    return [...new Set(candidates.map(cleanLink).filter(link => {
         try {
             const url = new URL(link);
             const isDisk = /^(?:www\.)?diskwala\.com$/i.test(url.hostname) && /^\/app\/[A-Za-z0-9_-]+/.test(url.pathname);
@@ -128,7 +139,7 @@ async function handle(body) {
             const timestamp = Number(m.date) * 1000;
             if (timestamp < from.getTime()) break;
             if (timestamp >= endExclusive.getTime() || m.className !== 'Message') continue;
-            const links = classifiedLinks(m.message || '', provider);
+            const links = classifiedLinks(m.message || '', provider, m);
             if (!links.length) continue;
             group++;
             const doc = m.document || m.media?.document;
